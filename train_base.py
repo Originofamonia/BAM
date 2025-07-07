@@ -1,30 +1,30 @@
 import os
 import datetime
-import random
+# import random
 import time
 import cv2
 import numpy as np
-import logging
+# import logging
 import argparse
-import math
-from visdom import Visdom
+# import math
+from tqdm import tqdm
 import os.path as osp
 from shutil import copyfile
 
 import torch
-import torch.backends.cudnn as cudnn
+# import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.parallel
-import torch.optim
+# import torch.optim
 import torch.utils.data
-import torch.multiprocessing as mp
+# import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 
 from tensorboardX import SummaryWriter
 
-from model import PSPNet
+from model import PSPNet  # must have
 
 from util import dataset
 from util import transform, transform_tri, config
@@ -33,14 +33,15 @@ from util.util import AverageMeter, poly_learning_rate, intersectionAndUnionGPU,
 
 cv2.ocl.setUseOpenCL(False)
 cv2.setNumThreads(0)
+local_rank = int(os.environ["LOCAL_RANK"])
 # os.environ["CUDA_VISIBLE_DEVICES"] = '8'
 
 def get_parser():
     parser = argparse.ArgumentParser(description='PyTorch Semantic Segmentation')
-    parser.add_argument('--arch', type=str, default='PSPNet') # 
+    parser.add_argument('--arch', type=str, default='PSPNet')
     parser.add_argument('--viz', action='store_true', default=False)
-    parser.add_argument('--config', type=str, default='config/pascal/pascal_split0_vgg_base.yaml', help='config file') # coco/coco_split0_resnet50.yaml
-    parser.add_argument('--local_rank', type=int, default=-1, help='number of cpu threads to use during batch generation')    
+    parser.add_argument('--config', type=str, default='config/coco/coco_split0_resnet50.yaml', help='config file')
+    # parser.add_argument('--local_rank', type=int, default=-1, help='number of cpu threads to use during batch generation')
     parser.add_argument('--opts', help='see config/ade20k/ade20k_pspnet50.yaml for all options', default=None, nargs=argparse.REMAINDER)
     args = parser.parse_args()
     assert args.config is not None
@@ -62,12 +63,12 @@ def get_model(args):
     if args.distributed:
         # Initialize Process Group
         dist.init_process_group(backend='nccl')
-        print('args.local_rank: ', args.local_rank)
-        torch.cuda.set_device(args.local_rank)
-        device = torch.device('cuda', args.local_rank)
+        print('local_rank: ', local_rank)
+        torch.cuda.set_device(local_rank)
+        device = torch.device('cuda', local_rank)
         model.to(device)
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], output_device=local_rank)
     else:
         model = model.cuda()
 
@@ -107,7 +108,7 @@ def get_model(args):
     return model, optimizer
 
 def main_process():
-    return not args.distributed or (args.distributed and (args.local_rank == 0))
+    return not args.distributed or (args.distributed and (local_rank == 0))
 
 def main():
     global args, logger, writer
@@ -127,8 +128,8 @@ def main():
     if main_process():
         logger.info("=> creating model ...")
     model, optimizer = get_model(args)
-    if main_process():
-        logger.info(model)
+    # if main_process():
+    #     logger.info(model)
     if main_process() and args.viz:
         writer = SummaryWriter(args.result_path)
 
@@ -239,7 +240,7 @@ def main():
 
 def train(train_loader, model, optimizer, epoch):
     batch_time = AverageMeter()
-    data_time = AverageMeter()
+    # data_time = AverageMeter()
     loss_meter = AverageMeter()
     intersection_meter = AverageMeter()
     union_meter = AverageMeter()
@@ -251,18 +252,19 @@ def train(train_loader, model, optimizer, epoch):
     val_time = 0.
     max_iter = args.epochs * len(train_loader)
     if main_process():
-        print('Warmup: {}'.format(args.warmup))
+        print(f'Warmup: {args.warmup}')
+        pbar = tqdm(total=len(train_loader), desc=f"E {epoch+1}/{args.epochs}")
 
     for i, (input, target) in enumerate(train_loader):
 
-        data_time.update(time.time() - end - val_time)
+        # data_time.update(time.time() - end - val_time)
         current_iter = epoch * len(train_loader) + i + 1
         
         poly_learning_rate(optimizer, args.base_lr, current_iter, max_iter, power=args.power, index_split=args.index_split, warmup=args.warmup, warmup_step=len(train_loader)//2)
 
         input = input.cuda(non_blocking=True)
         target = target.cuda(non_blocking=True)
-        
+
         output, main_loss = model(x=input, y=target)
 
         loss = main_loss
@@ -291,17 +293,14 @@ def train(train_loader, model, optimizer, epoch):
         remain_time = '{:02d}:{:02d}:{:02d}'.format(int(t_h), int(t_m), int(t_s))
 
         if (i + 1) % args.print_freq == 0 and main_process():
-            logger.info('Epoch: [{}/{}][{}/{}] '
-                        'Data {data_time.val:.3f} ({data_time.avg:.3f}) '
-                        'Batch {batch_time.val:.3f} ({batch_time.avg:.3f}) '
-                        'Remain {remain_time} '                      
-                        'Loss {loss_meter.val:.4f} '
-                        'Accuracy {accuracy:.4f}.'.format(epoch+1, args.epochs, i + 1, len(train_loader),
-                                                        batch_time=batch_time,
-                                                        data_time=data_time,
-                                                        remain_time=remain_time,
-                                                        loss_meter=loss_meter,
-                                                        accuracy=accuracy))
+            pbar.set_postfix({
+                # 'Data': f'{data_time.val:.3f}',
+                'Batch': f'{batch_time.val:.3f}',
+                'L': f'{loss_meter.val:.4f}',
+                'Acc': f'{accuracy:.4f}',
+                'Rem': remain_time
+            })
+            pbar.update(1)
             if args.viz:
                 writer.add_scalar('loss_train', loss_meter.val, current_iter)
 
@@ -320,7 +319,7 @@ def validate(val_loader, model):
         logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
     batch_time = AverageMeter()
     model_time = AverageMeter()
-    data_time = AverageMeter()
+    # data_time = AverageMeter()
     loss_meter = AverageMeter()
 
     intersection_meter = AverageMeter()
@@ -343,7 +342,7 @@ def validate(val_loader, model):
 
     for i, logits in enumerate(val_loader):
             iter_num += 1
-            data_time.update(time.time() - end)
+            # data_time.update(time.time() - end)
 
             if args.batch_size_val == 1:
                 input, target, ori_label = logits
@@ -382,11 +381,11 @@ def validate(val_loader, model):
             end = time.time()
             if ((iter_num % 100 == 0) or (iter_num == len(val_loader))) and main_process():
                 logger.info('Test: [{}/{}] '
-                            'Data {data_time.val:.3f} ({data_time.avg:.3f}) '
+                            # 'Data {data_time.val:.3f} ({data_time.avg:.3f}) '
                             'Batch {batch_time.val:.3f} ({batch_time.avg:.3f}) '
                             'Loss {loss_meter.val:.4f} ({loss_meter.avg:.4f}) '
                             'Accuracy {accuracy:.4f}.'.format(iter_num, len(val_loader),
-                                                            data_time=data_time,
+                                                            # data_time=data_time,
                                                             batch_time=batch_time,
                                                             loss_meter=loss_meter,
                                                             accuracy=accuracy))

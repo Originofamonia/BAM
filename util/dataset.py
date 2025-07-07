@@ -602,16 +602,13 @@ class BaseData(Dataset):
                 self.class_list = list(range(1, 81))
                 if self.split == 3:
                     self.sub_val_list = list(range(4, 81, 4))
-                    self.sub_list = list(set(self.class_list) - set(self.sub_val_list))                    
                 elif self.split == 2:
                     self.sub_val_list = list(range(3, 80, 4))
-                    self.sub_list = list(set(self.class_list) - set(self.sub_val_list))    
                 elif self.split == 1:
                     self.sub_val_list = list(range(2, 79, 4))
-                    self.sub_list = list(set(self.class_list) - set(self.sub_val_list))    
                 elif self.split == 0:
                     self.sub_val_list = list(range(1, 78, 4))
-                    self.sub_list = list(set(self.class_list) - set(self.sub_val_list))    
+                self.sub_list = list(set(self.class_list) - set(self.sub_val_list))
             else:
                 print('INFO: using COCO (PANet)')
                 self.class_list = list(range(1, 81))
@@ -658,12 +655,17 @@ class BaseData(Dataset):
         label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
         label_tmp = label.copy()
 
-        for cls in range(1, self.num_classes+1):
+        # for cls in range(1, self.num_classes+1):
+        #     select_pix = np.where(label_tmp == cls)
+        #     if cls in self.sub_list:
+        #         label[select_pix[0],select_pix[1]] = self.sub_list.index(cls) + 1
+        #     else:
+        #         label[select_pix[0],select_pix[1]] = 0
+        label[...] = 255  # Default: ignore all
+
+        for cls in self.sub_list:
             select_pix = np.where(label_tmp == cls)
-            if cls in self.sub_list:
-                label[select_pix[0],select_pix[1]] = self.sub_list.index(cls) + 1
-            else:
-                label[select_pix[0],select_pix[1]] = 0
+            label[select_pix] = self.sub_list.index(cls)  # 0-based remapping
                 
         raw_label = label.copy()
 

@@ -3,20 +3,20 @@ import numpy as np
 from PIL import Image
 import random
 import logging
-import cv2
-import matplotlib.pyplot as plt
-from matplotlib.pyplot import MultipleLocator
-from matplotlib.ticker import FuncFormatter, FormatStrFormatter
-from matplotlib import font_manager
-from matplotlib import rcParams
-import seaborn as sns
-import pandas as pd
-import math
-from seaborn.distributions import distplot
-from tqdm import tqdm
-from scipy import ndimage
+# import cv2
+# import matplotlib.pyplot as plt
+# from matplotlib.pyplot import MultipleLocator
+# from matplotlib.ticker import FuncFormatter, FormatStrFormatter
+# from matplotlib import font_manager
+# from matplotlib import rcParams
+# import seaborn as sns
+# import pandas as pd
+# import math
+# from seaborn.distributions import distplot
+# from tqdm import tqdm
+# from scipy import ndimage
 
-from util.get_weak_anns import find_bbox
+# from util.get_weak_anns import find_bbox
 
 import torch
 from torch import nn

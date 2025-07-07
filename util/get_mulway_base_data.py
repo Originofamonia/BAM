@@ -1,8 +1,12 @@
+import os
+import sys
 import cv2
 import numpy as np
 import argparse
 import os.path as osp
 from tqdm import tqdm
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from util import get_train_val_set, check_makedirs
 
 # Get the annotations of base categories
@@ -32,7 +36,7 @@ from util import get_train_val_set, check_makedirs
 parser = argparse.ArgumentParser()
 args = parser.parse_args()
 
-args.data_set = 'pascal'  # pascal coco
+args.data_set = 'coco'  # pascal coco
 args.use_split_coco = True
 args.mode = 'train'       # train val
 args.split = 0            # 0 1 2 3
@@ -41,8 +45,8 @@ if args.data_set == 'pascal':
 elif args.data_set == 'coco':
     num_classes = 80
 
-root_path = '/disk2/lcb/study/FS_Seg/'
-data_path = osp.join(root_path, 'data/base_annotation/')
+root_path = '/home/edward/Desktop'
+data_path = '/home/edward/Desktop/data/coco'
 save_path = osp.join(data_path, args.data_set, args.mode, str(args.split))
 check_makedirs(save_path)
 
@@ -50,8 +54,8 @@ check_makedirs(save_path)
 sub_list, sub_val_list = get_train_val_set(args)
 
 # get data_list
-fss_list_root = root_path + '/BAM/lists/{}/fss_list/{}/'.format(args.data_set, args.mode)
-fss_data_list_path = fss_list_root + 'data_list_{}.txt'.format(args.split)
+fss_list_root = osp.join(root_path, f'BAM/lists/{args.data_set}/fss_list/{args.mode}')
+fss_data_list_path = osp.join(fss_list_root, f'data_list_{args.split}.txt')
 with open(fss_data_list_path, 'r') as f:
     f_str = f.readlines()
 data_list = []

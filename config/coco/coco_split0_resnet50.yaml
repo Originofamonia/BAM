@@ -1,5 +1,5 @@
 Data:
-  data_root: ../data/MSCOCO2014
+  data_root: /home/edward/data/MSCOCO2014
   base_data_root: ../data/base_annotation/coco/
   train_list: ./lists/coco/train.txt
   val_list: ./lists/coco/val.txt
@@ -47,7 +47,7 @@ Train:
   # Else
   workers: 8
   fix_bn: True
-  manual_seed: 321
+  manual_seed: 8964
   seed_deterministic: False
   zoom_factor: 8  # zoom factor for final prediction during training, be in [1, 2, 4, 8]
   
