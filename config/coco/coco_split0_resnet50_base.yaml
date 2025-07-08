@@ -21,9 +21,9 @@ Train:
   data_set: 'coco'
   use_split_coco: True # True means FWB setting
   # Optimizer
-  batch_size: 7 # batch size for training (bs12 for 1GPU)
+  batch_size: 6 # batch size for training (bs12 for 1GPU)
   base_lr: 2.5e-4
-  epochs: 20
+  epochs: 1  # was 20
   start_epoch: 0
   stop_interval: 75 # stop when the best result is not updated for "stop_interval" epochs
   index_split: -1 # index for determining the params group with 10x learning rate
@@ -38,7 +38,7 @@ Train:
   # Validate
   evaluate: True
   fix_random_seed_val: True
-  batch_size_val: 4
+  batch_size_val: 2
   resized_val: True
   ori_resize: False  # use original label for evaluation
   # Else
