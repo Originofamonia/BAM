@@ -1,23 +1,23 @@
 import os
 import datetime
-import random
+# import random
 import time
 import cv2
 import numpy as np
-import logging
+# import logging
 import argparse
 import math
-from visdom import Visdom
+# from visdom import Visdom
 import os.path as osp
 
 import torch
-import torch.backends.cudnn as cudnn
+# import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.parallel
-import torch.optim
+# import torch.optim
 import torch.utils.data
-import torch.multiprocessing as mp
+# import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 
@@ -32,14 +32,14 @@ from util.util import AverageMeter, poly_learning_rate, intersectionAndUnionGPU,
 
 cv2.ocl.setUseOpenCL(False)
 cv2.setNumThreads(0)
-# os.environ["CUDA_VISIBLE_DEVICES"] = '9'
+local_rank = int(os.environ["LOCAL_RANK"])
 
 def get_parser():
     parser = argparse.ArgumentParser(description='PyTorch Few-Shot Semantic Segmentation')
-    parser.add_argument('--arch', type=str, default='BAM') # 
+    parser.add_argument('--arch', type=str, default='BAM')
     parser.add_argument('--viz', action='store_true', default=False)
-    parser.add_argument('--config', type=str, default='config/pascal/pascal_split0_vgg.yaml', help='config file') # coco/coco_split0_resnet50.yaml
-    parser.add_argument('--local_rank', type=int, default=-1, help='number of cpu threads to use during batch generation')    
+    parser.add_argument('--config', type=str, default='config/coco/coco_split0_resnet50.yaml', help='config file')
+    # parser.add_argument('--local_rank', type=int, default=-1, help='number of cpu threads to use during batch generation')    
     parser.add_argument('--opts', help='see config/ade20k/ade20k_pspnet50.yaml for all options', default=None, nargs=argparse.REMAINDER)
     args = parser.parse_args()
     assert args.config is not None
@@ -61,12 +61,12 @@ def get_model(args):
     if args.distributed:
         # Initialize Process Group
         dist.init_process_group(backend='nccl')
-        print('args.local_rank: ', args.local_rank)
-        torch.cuda.set_device(args.local_rank)
-        device = torch.device('cuda', args.local_rank)
+        print('local_rank: ', local_rank)
+        torch.cuda.set_device(local_rank)
+        device = torch.device('cuda', local_rank)
         model.to(device)
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], output_device=local_rank)
     else:
         model = model.cuda()
 
@@ -106,7 +106,7 @@ def get_model(args):
     return model, optimizer
 
 def main_process():
-    return not args.distributed or (args.distributed and (args.local_rank == 0))
+    return not args.distributed or (args.distributed and (local_rank == 0))
 
 def main():
     global args, logger, writer
@@ -126,8 +126,6 @@ def main():
     if main_process():
         logger.info("=> creating model ...")
     model, optimizer = get_model(args)
-    if main_process():
-        logger.info(model)
     if main_process() and args.viz:
         writer = SummaryWriter(args.result_path)
 
@@ -268,6 +266,9 @@ def main():
         print('FBIoU:{:.4f} \t FBIoU_m:{:.4f} \t pIoU:{:.4f}'.format(best_FBiou, best_FBiou_m, best_piou))
         print('>'*80)
         print ('%s' % datetime.datetime.now())
+    
+    if args.distributed:
+        dist.destroy_process_group()
 
 
 def train(train_loader, val_loader, model, optimizer, epoch):
@@ -440,12 +441,12 @@ def validate(val_loader, model):
     iter_num = 0
 
     for e in range(db_epoch):
-        for i, (input, target, target_b, s_input, s_mask, subcls, ori_label, ori_label_b) in enumerate(val_loader):
+        for i, batch in enumerate(val_loader):
             if iter_num * args.batch_size_val >= test_num:
                 break
             iter_num += 1
             data_time.update(time.time() - end)
-            
+            input, target, target_b, s_input, s_mask, subcls, ori_label, ori_label_b = batch
             s_input = s_input.cuda(non_blocking=True)
             s_mask = s_mask.cuda(non_blocking=True)                 
             input = input.cuda(non_blocking=True)

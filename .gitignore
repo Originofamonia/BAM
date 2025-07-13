@@ -179,6 +179,7 @@ checkpoints/*
 .vscode/
 backbones/
 lists/
+exp/
 PSPNet/
 initmodel/
 wandb/

@@ -1,6 +1,6 @@
 Data:
   data_root: /home/edward/data/MSCOCO2014
-  base_data_root: ../data/base_annotation/coco/
+  base_data_root: /home/edward/data/MSCOCO2014/coco
   train_list: ./lists/coco/train.txt
   val_list: ./lists/coco/val.txt
   classes: 2
@@ -23,7 +23,7 @@ Train:
   data_set: 'coco'
   use_split_coco: True # True means FWB setting
   # Optimizer
-  batch_size: 2 # batch size for training (bs8 for 1GPU)
+  batch_size: 6 # batch size for training (bs8 for 1GPU)
   base_lr: 0.005
   epochs: 50
   start_epoch: 0
@@ -32,7 +32,7 @@ Train:
   power: 0.9 # 0 means no decay
   momentum: 0.9
   weight_decay: 0.0001
-  warmup: False
+  warmup: True
   # Viz & Save & Resume
   print_freq: 10
   save_freq: 5
@@ -41,7 +41,7 @@ Train:
   evaluate: True
   SubEpoch_val: True # val at the half epoch
   fix_random_seed_val: True
-  batch_size_val: 1
+  batch_size_val: 1  # has to be 1 in FSS
   resized_val: True
   ori_resize: True  # use original label for evaluation
   # Else

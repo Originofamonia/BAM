@@ -159,43 +159,35 @@ class SemData(Dataset):
                     self.sub_val_list = list(range(1, 21))           
 
         print('sub_list: ', self.sub_list)
-        print('sub_val_list: ', self.sub_val_list)    
-
-        # @@@ For convenience, we skip the step of building datasets and instead use the pre-generated lists @@@
-        # if self.mode == 'train':
-        #     self.data_list, self.sub_class_file_list = make_dataset(split, data_root, data_list, self.sub_list, True)
-        #     assert len(self.sub_class_file_list.keys()) == len(self.sub_list)
-        # elif self.mode == 'val' or self.mode == 'demo' or self.mode == 'finetune':
-        #     self.data_list, self.sub_class_file_list = make_dataset(split, data_root, data_list, self.sub_val_list, False)
-        #     assert len(self.sub_class_file_list.keys()) == len(self.sub_val_list) 
+        print('sub_val_list: ', self.sub_val_list)
 
         mode = 'train' if self.mode=='train' else 'val'
         self.base_path = os.path.join(self.base_data_root, mode, str(self.split))
 
-        fss_list_root = './lists/{}/fss_list/{}/'.format(data_set, mode)
-        fss_data_list_path = fss_list_root + 'data_list_{}.txt'.format(split)
-        fss_sub_class_file_list_path = fss_list_root + 'sub_class_file_list_{}.txt'.format(split)
+        fss_list_root = f'./lists/{data_set}/fss_list/{mode}/'
+        fss_data_list_path = fss_list_root + f'data_list_{split}.txt'
+        fss_sub_class_file_list_path = fss_list_root + f'sub_class_file_list_{split}.txt'
 
-        # Write FSS Data
-        # with open(fss_data_list_path, 'w') as f:
-        #     for item in self.data_list:
-        #         img, label = item
-        #         f.write(img + ' ')
-        #         f.write(label + '\n')
-        # with open(fss_sub_class_file_list_path, 'w') as f:
-        #     f.write(str(self.sub_class_file_list))
-
-        # Read FSS Data
         with open(fss_data_list_path, 'r') as f:
             f_str = f.readlines()
         self.data_list = []
         for line in f_str:
             img, mask = line.split(' ')
+            img = os.path.join(self.data_root, img.split('MSCOCO2014')[-1].lstrip('/'))
+            mask = os.path.join(self.data_root, mask.split('MSCOCO2014')[-1].lstrip('/'))
             self.data_list.append((img, mask.strip()))
 
         with open(fss_sub_class_file_list_path, 'r') as f:
             f_str = f.read()
         self.sub_class_file_list = eval(f_str)
+        for k, v in self.sub_class_file_list.items():
+            new_list = []
+            for row in v:
+                img, mask = row
+                img = os.path.join(self.data_root, img.split('MSCOCO2014')[-1].lstrip('/'))
+                mask = os.path.join(self.data_root, mask.split('MSCOCO2014')[-1].lstrip('/'))
+                new_list.append((img, mask.strip()))
+            self.sub_class_file_list[k] = new_list
 
         self.transform = transform
         self.transform_tri = transform_tri
@@ -230,7 +222,10 @@ class SemData(Dataset):
             if c in self.sub_list:
                 if self.mode == 'train':
                     new_label_class.append(c)
-        label_class = new_label_class    
+        label_class = new_label_class
+        if len(new_label_class) == 0:
+            # Skip this sample and try another one
+            return self.__getitem__((index + 1) % len(self.data_list))
         assert len(label_class) > 0
 
         class_chosen = label_class[random.randint(1,len(label_class))-1]
@@ -240,13 +235,6 @@ class SemData(Dataset):
         if target_pix[0].shape[0] > 0:
             label[target_pix[0],target_pix[1]] = 1 
         label[ignore_pix[0],ignore_pix[1]] = 255
-
-        # for cls in range(1,self.num_classes+1):
-        #     select_pix = np.where(label_b_tmp == cls)
-        #     if cls in self.sub_list:
-        #         label_b[select_pix[0],select_pix[1]] = self.sub_list.index(cls) + 1
-        #     else:
-        #         label_b[select_pix[0],select_pix[1]] = 0    
 
         file_class_chosen = self.sub_class_file_list[class_chosen]
         num_file = len(file_class_chosen)
@@ -260,7 +248,8 @@ class SemData(Dataset):
             support_label_path = label_path
             while((support_image_path == image_path and support_label_path == label_path) or support_idx in support_idx_list):
                 support_idx = random.randint(1,num_file)-1
-                support_image_path, support_label_path = file_class_chosen[support_idx]                
+                support_image_path, support_label_path = file_class_chosen[support_idx]
+
             support_idx_list.append(support_idx)
             support_image_path_list.append(support_image_path)
             support_label_path_list.append(support_label_path)
@@ -322,7 +311,7 @@ class SemData(Dataset):
         elif self.mode == 'demo':
             total_image_list = support_image_list_ori.copy()
             total_image_list.append(raw_image)            
-            return image, label, label_b, s_x, s_y, subcls_list, total_image_list, support_label_list_ori, support_label_list_ori_mask, raw_label, raw_label_b          
+            return image, label, label_b, s_x, s_y, subcls_list, total_image_list, support_label_list_ori, support_label_list_ori_mask, raw_label, raw_label_b
 
 
 

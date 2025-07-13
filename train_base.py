@@ -236,6 +236,9 @@ def main():
         print(args.arch + '\t Group:{} \t Best_mIoU:{:.4f} \t Best_step:{}'.format(args.split, best_miou, best_epoch))
         print('>'*80)
         print ('%s' % datetime.datetime.now())
+    
+    if args.distributed:
+        dist.destroy_process_group()
 
 
 def train(train_loader, model, optimizer, epoch):
@@ -319,7 +322,6 @@ def validate(val_loader, model):
         logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
     batch_time = AverageMeter()
     model_time = AverageMeter()
-    # data_time = AverageMeter()
     loss_meter = AverageMeter()
 
     intersection_meter = AverageMeter()
@@ -342,7 +344,6 @@ def validate(val_loader, model):
 
     for i, logits in enumerate(val_loader):
             iter_num += 1
-            # data_time.update(time.time() - end)
 
             if args.batch_size_val == 1:
                 input, target, ori_label = logits

@@ -1,7 +1,7 @@
 #!/bin/sh
 PARTITION=Segmentation
 
-GPU_ID=0,1,2,3
+GPU_ID=0,1
 dataset=coco # pascal coco
 exp_name=split0
 
@@ -18,8 +18,9 @@ cp train.sh train.py ${config} ${exp_dir}
 
 echo ${arch}
 echo ${config}
+export OMP_NUM_THREADS=6  # or some value based on your CPU core count
 
-CUDA_VISIBLE_DEVICES=${GPU_ID} python3 -m torch.distributed.launch --nproc_per_node=4 --master_port=1234 train.py \
+CUDA_VISIBLE_DEVICES=${GPU_ID} torchrun --nproc_per_node=2 --master_port=1234 train.py \
         --config=${config} \
         --arch=${arch} \
         2>&1 | tee ${result_dir}/train-$now.log

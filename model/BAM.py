@@ -60,7 +60,7 @@ class OneModel(nn.Module):
         PSPNet_ = PSPNet(args)
         backbone_str = 'vgg' if args.vgg else 'resnet'+str(args.layers)
         weight_path = 'initmodel/PSPNet/{}/split{}/{}/best.pth'.format(args.data_set, args.split, backbone_str)               
-        new_param = torch.load(weight_path, map_location=torch.device('cpu'))['state_dict']
+        new_param = torch.load(weight_path, map_location=torch.device('cpu'), weights_only=True)['state_dict']
         try: 
             PSPNet_.load_state_dict(new_param)
         except RuntimeError:                   # 1GPU loads mGPU model
