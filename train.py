@@ -102,7 +102,6 @@ def get_model(args):
         print('Number of Parameters: %d' % (total_number))
         print('Number of Learnable Parameters: %d' % (learnable_number))
 
-    time.sleep(5)
     return model, optimizer
 
 def main_process():
@@ -229,7 +228,7 @@ def main():
 
         # -----------------------  VAL  -----------------------
         if args.evaluate and epoch%1==0:
-            loss_val, FBIoU, FBIoU_m, mIoU, mIoU_m, mIoU_b, pIoU = validate(val_loader, model)            
+            loss_val, FBIoU, FBIoU_m, mIoU, mIoU_m, mIoU_b, pIoU = evaluate(val_loader, model)            
             val_num += 1
             if main_process() and args.viz:
                 writer.add_scalar('loss_val', loss_val, epoch_log)
@@ -294,20 +293,22 @@ def train(train_loader, val_loader, model, optimizer, epoch):
     if main_process():
         print('Warmup: {}'.format(args.warmup))
 
-    for i, (input, target, target_b, s_input, s_mask, subcls) in enumerate(train_loader):
+    for i, batch in enumerate(train_loader):
 
         data_time.update(time.time() - end)
         current_iter = epoch * len(train_loader) + i + 1
         
-        poly_learning_rate(optimizer, args.base_lr, current_iter, max_iter, power=args.power, index_split=args.index_split, warmup=args.warmup, warmup_step=len(train_loader)//2)
-
-        s_input = s_input.cuda(non_blocking=True)
-        s_mask = s_mask.cuda(non_blocking=True)
-        input = input.cuda(non_blocking=True)
-        target = target.cuda(non_blocking=True)
-        target_b = target_b.cuda(non_blocking=True)
-        
-        output, main_loss, aux_loss1, aux_loss2 = model(s_x=s_input, s_y=s_mask, x=input, y_m=target, y_b=target_b, cat_idx=subcls)
+        poly_learning_rate(optimizer, args.base_lr, current_iter, max_iter, power=args.power, 
+                           index_split=args.index_split, warmup=args.warmup, warmup_step=len(train_loader)//2)
+        q_img, target, target_b, s_input, s_mask, subcls = batch
+        q_img = q_img.cuda(non_blocking=True)  # [B, 3, 641, 641]
+        target = target.cuda(non_blocking=True)  # [B, 641, 641]
+        target_b = target_b.cuda(non_blocking=True)  # [B, 641, 641]
+        s_input = s_input.cuda(non_blocking=True)  # [B, 1, 3, 641, 641]
+        s_mask = s_mask.cuda(non_blocking=True)  # [B, 641, 641]
+        # subcls: [tensor([17, 51, 20, 11, 5, 51])] base class id
+        output, main_loss, aux_loss1, aux_loss2 = model(s_x=s_input, s_y=s_mask, x=q_img,
+                                                        y_m=target, y_b=target_b, cat_idx=subcls)
 
         loss = main_loss + args.aux_weight1*aux_loss1 + args.aux_weight2*aux_loss2
 
@@ -315,7 +316,7 @@ def train(train_loader, val_loader, model, optimizer, epoch):
         loss.backward()
         optimizer.step()
 
-        n = input.size(0) # batch_size
+        n = q_img.size(0) # batch_size
 
         intersection, union, target = intersectionAndUnionGPU(output, target, args.classes, args.ignore_label)
         intersection, union, target = intersection.cpu().numpy(), union.cpu().numpy(), target.cpu().numpy()
@@ -363,7 +364,7 @@ def train(train_loader, val_loader, model, optimizer, epoch):
 
         # -----------------------  SubEpoch VAL  -----------------------
         if args.evaluate and args.SubEpoch_val and (args.epochs<=100 and epoch%1==0 and epoch>0) and (i==round(len(train_loader)/2)): # <if> max_epoch<=100 <do> half_epoch Val
-            loss_val, FBIoU, FBIoU_m, mIoU, mIoU_m, mIoU_b, pIoU = validate(val_loader, model)
+            loss_val, FBIoU, FBIoU_m, mIoU, mIoU_m, mIoU_b, pIoU = evaluate(val_loader, model)
             val_num += 1 
         # save model for <testing>
             if mIoU > best_miou:
@@ -397,7 +398,7 @@ def train(train_loader, val_loader, model, optimizer, epoch):
     return main_loss_meter.avg, mIoU, mAcc, allAcc
 
 
-def validate(val_loader, model):
+def evaluate(val_loader, model):
     if main_process():
         logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
     batch_time = AverageMeter()

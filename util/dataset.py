@@ -206,6 +206,8 @@ class SemData(Dataset):
         image = np.float32(image)
         label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
         label_b = cv2.imread(os.path.join(self.base_path,label_path.split('/')[-1]), cv2.IMREAD_GRAYSCALE)
+        # print(image_path, label_path, os.path.join(self.base_path,label_path.split('/')[-1]))
+        # exit()
 
         if image.shape[0] != label.shape[0] or image.shape[1] != label.shape[1]:
             raise (RuntimeError("Query Image & label shape mismatch: " + image_path + " " + label_path + "\n"))          

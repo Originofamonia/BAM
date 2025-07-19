@@ -38,7 +38,7 @@ class OneModel(nn.Module):
     def __init__(self, args, cls_type=None):
         super(OneModel, self).__init__()
 
-        self.cls_type = cls_type  # 'Base' or 'Novel'
+        self.cls_type = cls_type  # 'Base' or 'Novel', is Base
         self.layers = args.layers
         self.zoom_factor = args.zoom_factor
         self.shot = args.shot
@@ -59,7 +59,7 @@ class OneModel(nn.Module):
     
         PSPNet_ = PSPNet(args)
         backbone_str = 'vgg' if args.vgg else 'resnet'+str(args.layers)
-        weight_path = 'initmodel/PSPNet/{}/split{}/{}/best.pth'.format(args.data_set, args.split, backbone_str)               
+        weight_path = f'initmodel/PSPNet/{args.data_set}/split{args.split}/{backbone_str}/best.pth'
         new_param = torch.load(weight_path, map_location=torch.device('cpu'), weights_only=True)['state_dict']
         try: 
             PSPNet_.load_state_dict(new_param)
@@ -115,7 +115,8 @@ class OneModel(nn.Module):
         self.cls_merge = nn.Conv2d(2, 1, kernel_size=1, bias=False)
         self.cls_merge.weight = nn.Parameter(torch.tensor([[1.0],[0.0]]).reshape_as(self.cls_merge.weight))
 
-        # K-Shot Reweighting
+        # K-Shot Reweighting outputs higher weights for more similar supports 
+        # (i.e., smaller norm → higher weight).
         if args.shot > 1:
             self.kshot_trans_dim = args.kshot_trans_dim
             if self.kshot_trans_dim == 0:
@@ -174,7 +175,7 @@ class OneModel(nn.Module):
             param.requires_grad = False
 
 
-    # que_img, sup_img, sup_mask, que_mask(meta), que_mask(base), cat_idx(meta)
+    # q_img, s_img, s_mask, q_mask(meta), q_mask(base), cat_idx(meta)
     def forward(self, x, s_x, s_y, y_m, y_b, cat_idx=None):
         x_size = x.size()
         bs = x_size[0]
@@ -185,112 +186,120 @@ class OneModel(nn.Module):
         with torch.no_grad():
             query_feat_0 = self.layer0(x)
             query_feat_1 = self.layer1(query_feat_0)
-            query_feat_2 = self.layer2(query_feat_1)
-            query_feat_3 = self.layer3(query_feat_2)
+            query_feat_2 = self.layer2(query_feat_1)  # [B, 512, 81, 81]
+            query_feat_3 = self.layer3(query_feat_2)  # [B, 1024, 81, 81]
             query_feat_4 = self.layer4(query_feat_3)
             if self.vgg:
-                query_feat_2 = F.interpolate(query_feat_2, size=(query_feat_3.size(2),query_feat_3.size(3)), mode='bilinear', align_corners=True)
+                query_feat_2 = F.interpolate(query_feat_2, size=(query_feat_3.size(2),query_feat_3.size(3)), 
+                                             mode='bilinear', align_corners=True)
 
-        query_feat = torch.cat([query_feat_3, query_feat_2], 1)
-        query_feat = self.down_query(query_feat)
+        query_feat = torch.cat([query_feat_3, query_feat_2], 1)  # [B, 1536, 81, 81]
+        query_feat = self.down_query(query_feat)  # [B, 256, 81, 81]
 
         # Support Feature
         supp_pro_list = []
         final_supp_list = []
-        mask_list = []
+        s_mask_list = []
         supp_feat_list = [] 
         for i in range(self.shot):
-            mask = (s_y[:,i,:,:] == 1).float().unsqueeze(1)
-            mask_list.append(mask)
+            s_mask = (s_y[:,i,:,:] == 1).float().unsqueeze(1)  # [B, 1, 641, 641]
+            s_mask_list.append(s_mask)
             with torch.no_grad():
                 supp_feat_0 = self.layer0(s_x[:,i,:,:,:])
                 supp_feat_1 = self.layer1(supp_feat_0)
-                supp_feat_2 = self.layer2(supp_feat_1)
-                supp_feat_3 = self.layer3(supp_feat_2)
-                mask = F.interpolate(mask, size=(supp_feat_3.size(2), supp_feat_3.size(3)), mode='bilinear', align_corners=True)
-                supp_feat_4 = self.layer4(supp_feat_3*mask)
+                supp_feat_2 = self.layer2(supp_feat_1)  # [B, 512, 81, 81]
+                supp_feat_3 = self.layer3(supp_feat_2)  # [B, 1024, 81, 81]
+                s_mask = F.interpolate(s_mask, size=(supp_feat_3.size(2), supp_feat_3.size(3)), mode='bilinear', align_corners=True)
+                supp_feat_4 = self.layer4(supp_feat_3*s_mask)  # [B, 2048, 81, 81]
                 final_supp_list.append(supp_feat_4)
                 if self.vgg:
                     supp_feat_2 = F.interpolate(supp_feat_2, size=(supp_feat_3.size(2),supp_feat_3.size(3)), mode='bilinear', align_corners=True)
-            
-            supp_feat = torch.cat([supp_feat_3, supp_feat_2], 1)
-            supp_feat = self.down_supp(supp_feat)
-            supp_pro = Weighted_GAP(supp_feat, mask)
-            supp_pro_list.append(supp_pro)
-            supp_feat_list.append(eval('supp_feat_' + self.low_fea_id))
 
-        # K-Shot Reweighting
-        que_gram = get_gram_matrix(eval('query_feat_' + self.low_fea_id)) # [bs, C, C] in (0,1)
-        norm_max = torch.ones_like(que_gram).norm(dim=(1,2))
+            supp_feat = torch.cat([supp_feat_3, supp_feat_2], 1)  # [B, 1536, 81, 81]
+            supp_feat = self.down_supp(supp_feat)  # [B, 256, 81, 81]
+            supp_pro = Weighted_GAP(supp_feat, s_mask)  # [B, 256, 1, 1]: global average pooling
+            supp_pro_list.append(supp_pro)  # [torch.Size([6, 256, 1, 1])]
+            supp_feat_list.append(eval('supp_feat_' + self.low_fea_id))  # [torch.Size([6, 512, 81, 81])]
+
+        # K-Shot Reweighting of 5 support features
+        que_gram = get_gram_matrix(eval('query_feat_' + self.low_fea_id)) # [B, 512, 512] in (0,1)
+        norm_max = torch.ones_like(que_gram).norm(dim=(1,2))  # [B] in (512)
+
         est_val_list = []
         for supp_item in supp_feat_list:
             supp_gram = get_gram_matrix(supp_item)
             gram_diff = que_gram - supp_gram
-            est_val_list.append((gram_diff.norm(dim=(1,2))/norm_max).reshape(bs,1,1,1)) # norm2
+            # Each value in norms is a single scalar summarizing how "different" 
+            # the query and support features are for one support-query pair.
+            # Quantify similarity: smaller norm = more similar structure.
+            # Guide the model: e.g., select the closest support feature, or weight support contributions.
+            est_val_list.append((gram_diff.norm(dim=(1,2))/norm_max).reshape(bs,1,1,1)) # norm2 [B]
         est_val_total = torch.cat(est_val_list, 1)  # [bs, shot, 1, 1]
         if self.shot > 1:
-            val1, idx1 = est_val_total.sort(1)
-            val2, idx2 = idx1.sort(1)
-            weight = self.kshot_rw(val1)
-            weight = weight.gather(1, idx2)
-            weight_soft = torch.softmax(weight, 1)
+            val1, idx1 = est_val_total.sort(1)  # val1: sorted norms from most similar (smallest) to least
+            val2, idx2 = idx1.sort(1)  # idx2: indices to revert the sorting — i.e., so we can apply weights in the correct order later
+            weight = self.kshot_rw(val1)  # higher weights for more similar supports (i.e., smaller norm → higher weight)
+            weight = weight.gather(1, idx2)  # After transforming sorted values, reorder them to match the original k-shot support order
+            weight_soft = torch.softmax(weight, 1)  # normalize weights, summing to 1 across the k shots
         else:
             weight_soft = torch.ones_like(est_val_total)
-        est_val = (weight_soft * est_val_total).sum(1,True) # [bs, 1, 1, 1]            
+        est_val = (weight_soft * est_val_total).sum(1,True) # [B, 1, 1, 1]
 
         # Prior Similarity Mask
         corr_query_mask_list = []
         cosine_eps = 1e-7
         for i, tmp_supp_feat in enumerate(final_supp_list):
-            resize_size = tmp_supp_feat.size(2)
-            tmp_mask = F.interpolate(mask_list[i], size=(resize_size, resize_size), mode='bilinear', align_corners=True)
+            tmp_s_size = tmp_supp_feat.size(2)
+            tmp_mask = F.interpolate(s_mask_list[i], size=(tmp_s_size, tmp_s_size), 
+                                     mode='bilinear', align_corners=True)
 
             tmp_supp_feat_4 = tmp_supp_feat * tmp_mask
-            q = query_feat_4
-            s = tmp_supp_feat_4
+            q = query_feat_4  # [B, 2048, 81, 81]
+            s = tmp_supp_feat_4  # [B, 2048, 81, 81]
             bsize, ch_sz, sp_sz, _ = q.size()[:]
 
             tmp_query = q
             tmp_query = tmp_query.reshape(bsize, ch_sz, -1)
-            tmp_query_norm = torch.norm(tmp_query, 2, 1, True)
+            tmp_query_norm = torch.norm(tmp_query, 2, 1, True)  # [B, 1, 6561]
 
-            tmp_supp = s               
-            tmp_supp = tmp_supp.reshape(bsize, ch_sz, -1) 
+            tmp_supp = s
+            tmp_supp = tmp_supp.reshape(bsize, ch_sz, -1)
             tmp_supp = tmp_supp.permute(0, 2, 1)
-            tmp_supp_norm = torch.norm(tmp_supp, 2, 2, True) 
+            tmp_supp_norm = torch.norm(tmp_supp, 2, 2, True)  # [B , 6561, 1]
 
-            similarity = torch.bmm(tmp_supp, tmp_query)/(torch.bmm(tmp_supp_norm, tmp_query_norm) + cosine_eps)   
-            similarity = similarity.max(1)[0].reshape(bsize, sp_sz*sp_sz)
+            similarity = torch.bmm(tmp_supp, tmp_query)/(torch.bmm(tmp_supp_norm, tmp_query_norm) + cosine_eps)  # [B, 6561, 6561]
+            similarity = similarity.max(1)[0].reshape(bsize, sp_sz*sp_sz)  # [B, 6561]
+            # for every support pixel, keep only the max similarity it had to any query pixel
             similarity = (similarity - similarity.min(1)[0].unsqueeze(1))/(similarity.max(1)[0].unsqueeze(1) - similarity.min(1)[0].unsqueeze(1) + cosine_eps)
-            corr_query = similarity.reshape(bsize, 1, sp_sz, sp_sz)
+            # per-row min-max normalization
+            corr_query = similarity.reshape(bsize, 1, sp_sz, sp_sz)  # [B, 1, 81, 81]
             corr_query = F.interpolate(corr_query, size=(query_feat_3.size()[2], query_feat_3.size()[3]), mode='bilinear', align_corners=True)
             corr_query_mask_list.append(corr_query)
         corr_query_mask = torch.cat(corr_query_mask_list, 1)
-        corr_query_mask = (weight_soft * corr_query_mask).sum(1,True)
+        corr_query_mask = (weight_soft * corr_query_mask).sum(1,True)  # [B, 1, 81, 81]
 
         # Support Prototype
-        supp_pro = torch.cat(supp_pro_list, 2)  # [bs, 256, shot, 1]
-        supp_pro = (weight_soft.permute(0,2,1,3) * supp_pro).sum(2,True)
+        supp_pro = torch.cat(supp_pro_list, 2)  # [B, 256, shot, 1]
+        supp_pro = (weight_soft.permute(0,2,1,3) * supp_pro).sum(2,True)  # [B, 256, shot, 1]
 
         # Tile & Cat
-        concat_feat = supp_pro.expand_as(query_feat)
+        concat_feat = supp_pro.expand_as(query_feat)  # [B, 256, 81, 81]
         merge_feat = torch.cat([query_feat, concat_feat, corr_query_mask], 1)   # 256+256+1
-        merge_feat = self.init_merge(merge_feat)
+        merge_feat = self.init_merge(merge_feat)  # [B, 256, 81, 81]
 
         # Base and Meta
-        base_out = self.learner_base(query_feat_4)
+        base_out = self.learner_base(query_feat_4)  # [B, 61, 81, 81]
 
-        query_meta = self.ASPP_meta(merge_feat)
-        query_meta = self.res1_meta(query_meta)   # 1080->256
-        query_meta = self.res2_meta(query_meta) + query_meta 
-        meta_out = self.cls_meta(query_meta)
-        
-        meta_out_soft = meta_out.softmax(1)
-        base_out_soft = base_out.softmax(1)
+        query_meta = self.ASPP_meta(merge_feat)  # [B, 1280, 81, 81]
+        query_meta = self.res1_meta(query_meta)   # 1280->256 [B, 256, 81, 81]
+        query_meta = self.res2_meta(query_meta) + query_meta  # [B, 256, 81, 81]
+        meta_out = self.cls_meta(query_meta)  # [B, 2, 81, 81]
+        meta_out_soft = meta_out.softmax(1)  # [B, 2, 81, 81]
+        base_out_soft = base_out.softmax(1)  # [B, 61, 81, 81]
 
         # Classifier Ensemble
-        meta_map_bg = meta_out_soft[:,0:1,:,:]                           # [bs, 1, 60, 60]
-        meta_map_fg = meta_out_soft[:,1:,:,:]                            # [bs, 1, 60, 60]
+        meta_map_bg = meta_out_soft[:,0:1,:,:]  # [B, 1, 60, 60]
+        meta_map_fg = meta_out_soft[:,1:,:,:]  # [B, 1, 60, 60]
         if self.training and self.cls_type == 'Base':
             c_id_array = torch.arange(self.base_classes+1, device='cuda')
             base_map_list = []
@@ -305,7 +314,7 @@ class OneModel(nn.Module):
             # base_map = base_out_soft[:,1:,:,:].sum(1,True) - fg_map            
         else:
             base_map = base_out_soft[:,1:,:,:].sum(1,True)
-
+        print(f'base_map: {base_map.shape}')
         est_map = est_val.expand_as(meta_map_fg)
 
         meta_map_bg = self.gram_merge(torch.cat([meta_map_bg,est_map], dim=1))
@@ -330,4 +339,3 @@ class OneModel(nn.Module):
             return final_out.max(1)[1], main_loss, aux_loss1, aux_loss2
         else:
             return final_out, meta_out, base_out
-
