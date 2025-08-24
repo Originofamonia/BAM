@@ -70,10 +70,6 @@ def get_model(args):
     else:
         model = model.cuda()
 
-    num_total = sum(p.numel() for p in model.parameters())
-    num_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    logger.info(f"Total parameters: {num_total:,}; trainable: {num_trainable}")
     # Resume
     get_save_path(args)
     check_makedirs(args.snapshot_path)
